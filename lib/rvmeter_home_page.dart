@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:ffi';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -7,6 +9,7 @@ import 'package:gauge_indicator/gauge_indicator.dart';
 import 'package:rvmeter_client/ble_utils_extras.dart';
 import 'package:rvmeter_client/scan_screen.dart';
 import 'package:rvmeter_client/snackbar.dart';
+import 'package:tuple/tuple.dart';
 
 Guid RV_METER_SERVICE_GUID = Guid("68f9860f-4946-4031-8107-9327cd9f92ca");
 Guid TOUCH_CHARACTERISTIC_UUID = Guid("bcdd0001-b67f-46c7-b2b8-e8a385ac70fc");
@@ -38,6 +41,21 @@ class _RvMeterHomePageState extends State<RvMeterHomePage> {
       _connectionStateSubscription;
   late StreamSubscription<bool> _isConnectingSubscription;
   late StreamSubscription<bool> _isDisconnectingSubscription;
+
+  // map of milli-volts to percent battery capacity left
+  static const List<Tuple2<int, int>> batteryTable = [
+    Tuple2(1264, 100),
+    Tuple2(1253, 90),
+    Tuple2(1241, 80),
+    Tuple2(1229, 70),
+    Tuple2(1218, 60),
+    Tuple2(1207, 50),
+    Tuple2(1197, 40),
+    Tuple2(1187, 30),
+    Tuple2(1176, 20),
+    Tuple2(1163, 10),
+    Tuple2(1159, 0),
+  ];
 
   @override
   void initState() {
@@ -134,12 +152,13 @@ class _RvMeterHomePageState extends State<RvMeterHomePage> {
     int milliVoltValue = 0;
     if (_touchCharacteristic != null) {
       try {
+        CharacteristicProperties properties = _touchCharacteristic!.properties;
         List<int> touchValues = await _touchCharacteristic!.read();
-        if (touchValues.length != 1) {
+        if (touchValues.length != 4) {
           Snackbar.show(ABC.c, "Invalid water level reading",
               success: false);
         } else {
-          touchValue = touchValues[0];
+          touchValue = _bytesToInt(touchValues);
         }
       } catch (e) {
         Snackbar.show(ABC.c, prettyException("Error getting water level:", e),
@@ -148,12 +167,12 @@ class _RvMeterHomePageState extends State<RvMeterHomePage> {
     }
     if (_voltageCharacteristic != null) {
       try {
-        List<int> milliVoltValues = await _touchCharacteristic!.read();
-        if (milliVoltValues.length != 1) {
+        List<int> milliVoltValues = await _voltageCharacteristic!.read();
+        if (milliVoltValues.length != 4) {
           Snackbar.show(ABC.c, "Invalid battery level reading",
               success: false);
         } else {
-          milliVoltValue = milliVoltValues[0];
+          milliVoltValue = _bytesToInt(milliVoltValues);
         }
       } catch (e) {
         Snackbar.show(ABC.c, prettyException("Error getting water level:", e),
@@ -162,32 +181,62 @@ class _RvMeterHomePageState extends State<RvMeterHomePage> {
     }
     if (mounted) {
       setState(() {
-        _batteryPercentage = _calculateBatteryPercentage(touchValue);
-        _waterPercentage = _calculateWaterPercentage(milliVoltValue);
+        _batteryPercentage = _calculateBatteryPercentage(milliVoltValue);
+        _waterPercentage = _calculateWaterPercentage(touchValue);
       });
     }
   }
 
-  double _calculateBatteryPercentage(int touchValue) {
-    debugPrint("Touch: $touchValue");
-    return _batteryPercentage + 5;
+  int _bytesToInt(List<int> bytes) {
+    int retval = 0;
+    for (int i = 0; i < bytes.length; i++) {
+      retval = retval + bytes[i] * (pow(256, i)).round();
+    }
+    return retval;
   }
 
-  double _calculateWaterPercentage(int milliVoltValue) {
-    debugPrint("Milli-volts: $milliVoltValue");
+  double _mapValueToPercent(value, List<Tuple2<int, int>> table) {
+    if (table.length < 2) {
+      return 0.0;
+    }
+    if (value >= table[0].item1) {
+      return table[0].item2.toDouble();
+    }
+    if (value <= table.last.item1) {
+      return table.last.item2.toDouble();
+    }
+    int i = 1;
+    while (i < table.length && value < table[i].item1) {
+      i++;
+    }
+    double percentBetween = (table[i-1].item1 - value) / (table[i-1].item1 - table[i].item1);
+    return table[i-1].item2.toDouble() - percentBetween * (table[i-1].item2 - table[i].item2);
+  }
+
+  double _calculateBatteryPercentage(int milliVoltValue) {
+    return _mapValueToPercent(milliVoltValue, batteryTable);
+  }
+
+  double _calculateWaterPercentage(int touchValue) {
     return _waterPercentage + 5;
   }
 
-  Widget buildSpinner(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(14.0),
-      child: AspectRatio(
-        aspectRatio: 1.0,
-        child: CircularProgressIndicator(
-          backgroundColor: Colors.black12,
-          color: Colors.black26,
+  Widget buildConnecting(BuildContext context) {
+    return Column(
+      children: [
+        const Padding(
+          padding: EdgeInsets.all(14.0),
+          child: AspectRatio(
+            aspectRatio: 1.0,
+            child: CircularProgressIndicator(
+              backgroundColor: Colors.black12,
+              color: Colors.black26,
+            ),
+          ),
         ),
-      ),
+        Center(child: Text('(re)Connecting...',
+          style: Theme.of(context).textTheme.headlineMedium,)),
+      ]
     );
   }
 
@@ -321,7 +370,7 @@ class _RvMeterHomePageState extends State<RvMeterHomePage> {
             title: Text(widget.title),
           ),
           body: Center(
-            child: isConnected ? buildConnected(context) : buildSpinner(context),
+            child: isConnected ? buildConnected(context) : buildConnecting(context),
           ),
           floatingActionButton: FloatingActionButton(
             onPressed: _refreshRvData,

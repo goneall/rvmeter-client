@@ -158,6 +158,12 @@
       "languageVersion": "2.18"
     },
     {
+      "name": "tuple",
+      "rootUri": "file:///C:/Users/gary/AppData/Local/Pub/Cache/hosted/pub.dev/tuple-2.0.2",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
       "name": "vector_math",
       "rootUri": "file:///C:/Users/gary/AppData/Local/Pub/Cache/hosted/pub.dev/vector_math-2.1.4",
       "packageUri": "lib/",
@@ -170,7 +176,7 @@
       "languageVersion": "3.0"
     }
   ],
-  "generated": "2024-04-18T21:13:03.414475Z",
+  "generated": "2024-04-19T22:12:06.566448Z",
   "generator": "pub",
   "generatorVersion": "3.0.0"
 }
